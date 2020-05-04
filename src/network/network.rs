@@ -89,6 +89,7 @@ impl Actor for Network {
         self.listener = Some(listener_addr);
         self.nodes_connected.push(self.id);
 
+
         let peers = self.peers.clone();
         for peer in peers {
             if peer != *network_address {
@@ -96,12 +97,14 @@ impl Actor for Network {
             }
         }
 
+
         ctx.run_later(Duration::new(10, 0), |act, ctx| {
             let num_nodes = act.nodes_connected.len();
 
             if num_nodes > 1 {
                 println!("Starting cluster with {} nodes", num_nodes);
                 act.state = NetworkState::Cluster;
+
                 let network_addr = ctx.address();
                 let members = act.nodes_connected.clone();
                 let id = act.id;
@@ -121,15 +124,66 @@ impl Actor for Network {
                             )).map_err(|_, _, _| ())
                         })
                         .and_then(|_, act, ctx: &mut Context<Network>| {
-                         //   ctx.address().do_send(ClientRequest(act.id));
+                          //  ctx.address().do_send(ClientRequest(act.id));
                             fut::ok(())
                         })
                 );
             } else {
-                println!("Starting in single node mode");
-                act.state = NetworkState::SingleNode;
+
+            //    println!("Starting in single node mode");
+            //    act.state = NetworkState::SingleNode;
+               
             }
         });
+
+            ctx.run_later(Duration::new(15, 0), |act, ctx| {
+            let num_nodes = act.nodes_connected.len();
+
+            if num_nodes == 1 {
+                println!("Starting single node with {} nodes", num_nodes);
+                act.state = NetworkState::SingleNode;
+
+                let network_addr = ctx.address();
+                let members = act.nodes_connected.clone();
+                let id = act.id;
+                let raft_node = RaftNode::new(id, members, network_addr);
+
+                act.raft = Some(raft_node);
+
+                debug!("{:?}", act.nodes_connected.clone());
+
+
+            let y= fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(5)))
+            .map_err(|_, _, _| ())
+            .and_then(move |_, act, ctx| {
+                fut::wrap_future::<_, Self>(
+                  ctx.address().send(InitRaft)
+                )
+                    .map_err(|err, _, _| panic!(err))
+                    .and_then(|_, _, _| {
+                        println!("Inited with single!");
+                        fut::wrap_future::<_, Self>(Delay::new(
+                            Instant::now() + Duration::from_secs(5),
+                        ))
+                    })
+                    .map_err(|_, _, _| ())
+                    .and_then(|_, act, ctx| {
+                    //   ctx.address().do_send(ClientRequest(act.id));
+                       fut::ok(())
+                    })
+            });
+
+                ctx.spawn(y);
+
+            } else {
+
+              //  println!("Starting in single node mode");
+              //  act.state = NetworkState::SingleNode;
+               
+            }
+        });
+
+
     }
 }
 
@@ -278,11 +332,22 @@ pub struct InitRaft;
 impl Handler<InitRaft> for Network {
     type Result = ();
 
-    fn handle(&mut self, msg: InitRaft, _ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: InitRaft, ctx: &mut Context<Self>) {
         let raft = self.raft.as_ref().unwrap();
+        println!("initraft node_connected is ------{:?}",self.nodes_connected.clone());
         let init_msg = InitWithConfig::new(self.nodes_connected.clone());
-        raft.addr.send(init_msg);
-    }
+        let res=raft.addr.send(init_msg);
+        let resone=  fut::wrap_future::<_, Self>(
+                 res
+                )
+            .map_err(|err, _, _| println!(" error is {:?}",err))
+            .and_then(|_, _, _| {
+                println!("Inited !");
+                fut::ok(())         
+            });
+
+            ctx.spawn(resone);
+  }
 }
 
 pub struct GetCurrentLeader;
