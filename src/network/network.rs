@@ -12,7 +12,7 @@ use crate::utils::generate_node_id;
 pub type Payload = messages::ClientPayload<storage::MemoryStorageData, storage::MemoryStorageResponse, storage::MemoryStorageError>;
 
 pub enum NetworkState {
-    Initialized,
+   // Initialized,
     SingleNode,
     Cluster,
 }
@@ -23,7 +23,10 @@ pub struct Network {
     raft: Option<RaftNode>,
     peers: Vec<String>,
     nodes: HashMap<NodeId, Addr<Node>>,
+
+   
     nodes_connected: Vec<NodeId>,
+
     listener: Option<Addr<Listener>>,
     state: NetworkState,
     pub metrics: Option<RaftMetrics>,
@@ -31,7 +34,7 @@ pub struct Network {
 }
 
 impl Network {
-    pub fn new() -> Network {
+    pub fn new(init_state:NetworkState) -> Network {
         Network {
             id: 0,
             address: None,
@@ -39,8 +42,9 @@ impl Network {
             nodes: HashMap::new(),
             raft: None,
             listener: None,
+        
             nodes_connected: Vec::new(),
-            state: NetworkState::Initialized,
+            state: init_state, //NetworkState::Initialized,
             metrics: None,
             sessions: HashMap::new(),
         }
@@ -88,7 +92,15 @@ impl Actor for Network {
         let listener_addr = Listener::new(network_address.as_str(), ctx.address().clone());
         self.listener = Some(listener_addr);
         self.nodes_connected.push(self.id);
+     
 
+        let start_flag=match self.state {
+            NetworkState::Cluster => true,
+            NetworkState::SingleNode => false,
+        };
+
+   // start as static cluster   
+   if start_flag {
 
         let peers = self.peers.clone();
         for peer in peers {
@@ -103,7 +115,7 @@ impl Actor for Network {
 
             if num_nodes > 1 {
                 println!("Starting cluster with {} nodes", num_nodes);
-                act.state = NetworkState::Cluster;
+            //    act.state = NetworkState::Cluster;
 
                 let network_addr = ctx.address();
                 let members = act.nodes_connected.clone();
@@ -130,18 +142,21 @@ impl Actor for Network {
                 );
             } else {
 
-            //    println!("Starting in single node mode");
+                println!("cluster timeout! will Start in single node mode");
             //    act.state = NetworkState::SingleNode;
                
             }
         });
+   }  
 
-            ctx.run_later(Duration::new(15, 0), |act, ctx| {
+        if !start_flag {
+
+            ctx.run_later(Duration::new(10, 0), |act, ctx| {
             let num_nodes = act.nodes_connected.len();
 
             if num_nodes == 1 {
                 println!("Starting single node with {} nodes", num_nodes);
-                act.state = NetworkState::SingleNode;
+            //    act.state = NetworkState::SingleNode;
 
                 let network_addr = ctx.address();
                 let members = act.nodes_connected.clone();
@@ -182,6 +197,7 @@ impl Actor for Network {
                
             }
         });
+    }
 
 
     }
@@ -322,6 +338,7 @@ impl Handler<PeerConnected> for Network {
     fn handle(&mut self, msg: PeerConnected, _ctx: &mut Context<Self>) {
         // println!("Registering node {}", msg.0);
         self.nodes_connected.push(msg.0);
+         
         // self.sessions.insert(msg.0, msg.1);
     }
 }
@@ -460,6 +477,8 @@ impl Handler<ClientRequest> for Network {
 
 
 
+
+
 //////////////////////////////////////////////////////////////////////////////
 // RaftMetrics ///////////////////////////////////////////////////////////////
 
@@ -475,3 +494,5 @@ impl Handler<RaftMetrics> for Network {
         self.metrics = Some(msg);
     }
 }
+
+

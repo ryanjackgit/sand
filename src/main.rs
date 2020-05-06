@@ -5,7 +5,7 @@ use actix_files as fs;
 use std::env;
 use futures::{Future};
 
-use sand::network::{Network, GetNode,Save,Find};
+use sand::network::{Network,NetworkState, GetNode,Save,Find};
 
 
 fn index_route(
@@ -57,7 +57,11 @@ fn find_route(
 
 fn main() {
     let sys = System::new("testing");
-    let mut net = Network::new();
+
+    //NetworkState::SingleNode
+    let start_init_state=NetworkState::Cluster;
+
+    let mut net = Network::new(start_init_state);
 
     let args: Vec<String> = env::args().collect();
     let local_address = args[1].as_str();
@@ -66,7 +70,7 @@ fn main() {
     // listen on ip and port
     net.listen(local_address);
 
-    // register peers
+    // register init static member peers
     let peers = vec![
         "127.0.0.1:8000",
         "127.0.0.1:8001",
@@ -84,7 +88,7 @@ fn main() {
             .service(web::resource("/save/{uid}").to_async(save_route))
             .service(web::resource("/find/{uid}").to_async(find_route))
         // static resources
-            .service(fs::Files::new("/static/", "static/"))
+           // .service(fs::Files::new("/static/", "static/"))
     })
         .bind(public_address)
         .unwrap()

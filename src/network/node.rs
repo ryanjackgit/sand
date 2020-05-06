@@ -24,7 +24,7 @@ use crate::network::{
 };
 
 #[derive(PartialEq)]
-enum NodeState {
+pub enum NodeState {
     Registered,
     Connected
 }
