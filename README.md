@@ -1,8 +1,8 @@
 # sand 
  this version support first start as singlenode,after other node join this single node cluster,
- attention, this style started cluster must keep three nodes.
+ attention, this style started cluster must keep three nodes at least.
 
-Rust Actor(Actix)  raft  implement Distributed storage system.
+Rust Actor(actix-raft) model raft  implement Distributed storage system.
 
 How to test it?
 
@@ -17,7 +17,7 @@ first start alone as single node server :
 ./target/debug/sand 127.0.0.1:8000 127.0.0.1:9000
 then please wait 5 seconds,the single node cluser works.
 
-4,  in main.rs set register_server="127.0.0.1:9000" as discovery node.
+4,  in main.rs set register_server="127.0.0.1:9000" as discovery node . then run  cargo build.
  
  start 3 nodes cluster: of course ,you may add more.
 
