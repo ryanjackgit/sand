@@ -6,6 +6,8 @@ use tokio::net::{TcpListener, TcpStream};
 use actix_raft::{NodeId};
 use log::{error};
 
+use crate::network::network::Handshake;
+
 use crate::network::{
     Network,
     NodeCodec,
@@ -108,9 +110,10 @@ impl StreamHandler<NodeRequest, std::io::Error> for NodeSession {
                 self.hb = Instant::now();
                 // println!("Server got ping from {}", self.id.unwrap());
             },
-            NodeRequest::Join(id) => {
+            NodeRequest::Join(id,address) => {
                 self.id = Some(id);
-                // self.network.do_send(PeerConnected(id));
+                println!("get new add NodeId and address try to handshake-------{}",id);
+                self.network.do_send(Handshake(id,address.clone()));
             },
             NodeRequest::Message(mid, type_id, body) => {
                 let task = actix::fut::wrap_future(self.network.send(SendToRaft(type_id, body)))

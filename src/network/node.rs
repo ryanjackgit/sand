@@ -7,6 +7,7 @@ use actix::prelude::*;
 use actix_raft::{NodeId};
 use tokio::sync::oneshot;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -15,6 +16,9 @@ use crate::network::{
     NodeRequest,
     NodeResponse,
     Network,
+    network::AddConnectedNode,
+    network::RemoveConnectedNode,
+    network::NodeDisconnect,
     PeerConnected,
     remote::{
         RemoteMessage,
@@ -38,6 +42,7 @@ pub struct Node {
     framed: Option<actix::io::FramedWrite<WriteHalf<TcpStream>, ClientNodeCodec>>,
     requests: HashMap<u64, oneshot::Sender<String>>,
     network: Addr<Network>,
+    hb: Instant,  // recorder hb instant
 }
 
 impl Node {
@@ -51,6 +56,7 @@ impl Node {
             framed: None,
             requests: HashMap::new(),
             network: network,
+             hb: Instant::now(),
         }
     }
 
@@ -74,11 +80,24 @@ impl Node {
     }
 
     fn hb(&self, ctx: &mut Context<Self>) {
+/*
         ctx.run_later(Duration::new(1, 0), |act, ctx| {
             act.framed.as_mut().unwrap().write(NodeRequest::Ping);
             act.hb(ctx);
         });
+*/
+         ctx.run_interval(Duration::new(1, 0), |act, ctx| {
+
+            if Instant::now().duration_since(act.hb) > Duration::new(10, 0) {
+                println!("Client heartbeat failed, disconnecting!");
+                ctx.stop();
+            }
+
+            // Reply heartbeat
+            act.framed.as_mut().unwrap().write(NodeRequest::Ping);
+        });
     }
+    
 }
 
 impl Actor for Node {
@@ -92,14 +111,13 @@ impl Actor for Node {
         println!("Node #{} disconnected", self.id);
         self.state = NodeState::Registered;
         // TODO: remove from network.nodes_connected
+
+     //    self.network.do_send(RemoveConnectedNode(self.id));
+        self.network.do_send(NodeDisconnect(self.id));
     }
 }
 
-impl Supervised for Node {
-    fn restarting(&mut self, _ctx: &mut Context<Self>) {
-        self.framed.take();
-    }
-}
+
 
 #[derive(Message)]
 struct TcpConnect(TcpStream);
@@ -111,6 +129,7 @@ impl Handler<TcpConnect> for Node {
     type Result = ();
 
     fn handle(&mut self, msg: TcpConnect, ctx: &mut Context<Self>) {
+         use crate::network::network::GetListenAddress;
         println!("Connected to remote node #{}", self.id);
         self.state = NodeState::Connected;
         let (r, w) = msg.0.split();
@@ -118,7 +137,18 @@ impl Handler<TcpConnect> for Node {
         self.framed = Some(actix::io::FramedWrite::new(w, ClientNodeCodec, ctx));
 
         self.network.do_send(PeerConnected(self.id));
-        self.framed.as_mut().unwrap().write(NodeRequest::Join(self.local_id));
+
+        self.network.do_send(AddConnectedNode(self.id,self.peer_addr.clone()));
+
+      
+        fut::wrap_future::<_, Self>(self.network.send(GetListenAddress))
+                            .map_err(move |err, _, _| panic!("Node {} not found"))
+                            .and_then(move |addrss, act, ctx| {
+              act.framed.as_mut().unwrap().write(NodeRequest::Join(act.local_id,addrss.unwrap().clone()));
+              fut::ok(())
+            }).wait(ctx);
+
+    //    self.framed.as_mut().unwrap().write(NodeRequest::Join(self.local_id,self.peer_addr.clone()));
         self.hb(ctx);
     }
 }
@@ -168,8 +198,32 @@ impl StreamHandler<NodeResponse, std::io::Error> for Node {
             },
             NodeResponse::Ping => {
                 // println!("Client got Ping from {}", self.id);
+                self.hb = Instant::now();
               },
             _ => ()
         }
     }
 }
+
+   use crate::network::network::SendToRaft;
+
+impl Handler<SendToRaft> for Node {
+ 
+    type Result = Result<String, ()>;
+
+    fn handle(&mut self, msg: SendToRaft, _ctx: &mut Context<Self>) -> Self::Result {
+                 if let Some(ref mut framed) = self.framed {
+            self.mid += 1;
+         //   self.requests.insert(self.mid, tx);
+
+         //   let body = serde_json::to_string(&msg.0).unwrap();
+            let request = NodeRequest::Message(self.mid, msg.0, msg.1);
+            framed.write(request);
+            return   Ok("yes".to_string());
+        }
+        Err(())
+
+    }
+}
+
+

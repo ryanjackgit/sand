@@ -9,10 +9,13 @@ use actix_raft::{
     AppError,
     AppDataResponse,
     messages,
+  
 };
 
-use crate::network::{Node, MsgTypes};
+use crate::network::{Node, MsgTypes,network::ChangeRaftClusterConfig};
 use crate::raft::MemRaft;
+
+
 
 pub trait RemoteMessage: Message + Send + Serialize + DeserializeOwned
 where Self::Result: Send + Serialize + DeserializeOwned {
@@ -82,3 +85,9 @@ impl RemoteMessage for messages::InstallSnapshotRequest {
 impl<D: AppData, R: AppDataResponse, E: AppError> RemoteMessage for messages::ClientPayload<D, R, E> {
     fn type_id() -> MsgTypes { MsgTypes::ClientPayload }
 }
+
+impl RemoteMessage for ChangeRaftClusterConfig {
+    fn type_id() -> MsgTypes { MsgTypes::ChangeRaftClusterConfig }
+}
+
+

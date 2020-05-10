@@ -8,7 +8,7 @@ use actix_raft::{NodeId};
 #[derive(Serialize, Deserialize, Debug)]
 pub enum NodeRequest {
     Ping,
-    Join(NodeId),
+    Join(NodeId,String),
     /// Message(msg_id, type_id, payload)
     Message(u64, MsgTypes, String),
 }
@@ -26,6 +26,7 @@ pub enum MsgTypes {
     VoteRequest,
     InstallSnapshotRequest,
     ClientPayload,
+    ChangeRaftClusterConfig,
 }
 
 pub struct NodeCodec;

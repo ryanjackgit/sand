@@ -4,8 +4,9 @@ use actix_web_actors::ws;
 use actix_files as fs;
 use std::env;
 use futures::{Future};
+use actix_raft::NodeId;
 
-use sand::network::{Network,NetworkState, GetNode,Save,Find};
+use sand::network::{Network,NetworkState, GetNode,GetNodes,GetClusterState,Save,Find,ChangeRaftClusterConfig};
 
 
 fn index_route(
@@ -20,6 +21,42 @@ fn index_route(
         .and_then(|res| {
             Ok(HttpResponse::Ok().body(res.unwrap().to_string()))
         })
+}
+
+
+fn state_route(
+    req: HttpRequest,
+    stream: web::Payload,
+    srv: web::Data<Addr<Network>>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
+    srv
+        .send(GetClusterState)
+        .map_err(Error::from)
+        .and_then(|res| Ok(HttpResponse::Ok().json(res)))
+}
+
+fn join_cluster_route(
+    node_id: web::Json<NodeId>,
+    req: HttpRequest,
+    stream: web::Payload,
+    srv: web::Data<Addr<Network>>,
+) ->  HttpResponse {
+
+    println!("got join request with id {:#?}", node_id);
+    srv.do_send(ChangeRaftClusterConfig(vec![*node_id], vec![]));
+    HttpResponse::Ok().json(()) // <- send json response
+}
+
+
+fn getNodes_route(
+     req: HttpRequest,
+    stream: web::Payload,
+    srv: web::Data<Addr<Network>>,
+) -> impl Future<Item = HttpResponse, Error = Error> {
+    srv
+        .send(GetNodes)
+        .map_err(Error::from)
+        .and_then(|res| Ok(HttpResponse::Ok().json(res)))
 }
 
 
@@ -59,9 +96,12 @@ fn main() {
     let sys = System::new("testing");
 
     //NetworkState::SingleNode
-    let start_init_state=NetworkState::Cluster;
+  //  let start_init_state=NetworkState::Cluster;
+    let register_server="127.0.0.1:9000".to_string();
 
-    let mut net = Network::new(start_init_state);
+    println!("the resister server is {}",register_server);
+
+    let mut net = Network::new(register_server);
 
     let args: Vec<String> = env::args().collect();
     let local_address = args[1].as_str();
@@ -74,8 +114,7 @@ fn main() {
     let peers = vec![
         "127.0.0.1:8000",
         "127.0.0.1:8001",
-        "127.0.0.1:8002",
-    ];
+       ];
 
     net.peers(peers);
 
@@ -87,7 +126,10 @@ fn main() {
             .service(web::resource("/node/{uid}").to_async(index_route))
             .service(web::resource("/save/{uid}").to_async(save_route))
             .service(web::resource("/find/{uid}").to_async(find_route))
-        // static resources
+              .service(web::resource("/cluster/state").to_async(state_route))
+            .service(web::resource("/cluster/nodes").to_async(getNodes_route))
+            .service(web::resource("/cluster/join").route(web::put().to_async(join_cluster_route)))
+        // static resources  getNodes_route
            // .service(fs::Files::new("/static/", "static/"))
     })
         .bind(public_address)
