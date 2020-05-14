@@ -17,7 +17,7 @@ first start alone as single node server :
 ./target/debug/sand 127.0.0.1:8000 127.0.0.1:9000
 then please wait 5 seconds,the single node cluser works.
 
-4,  in src/config.json,set  discovery_server="127.0.0.1:9000" as discovery node . 
+4,  in sand/config.json,set  discovery_server="127.0.0.1:9000" as discovery node . 
  
  start 3 nodes cluster: of course ,you may add more.
 
