@@ -9,7 +9,7 @@ use actix_web::client::Client;
 use serde::{de::DeserializeOwned, Serialize, Deserialize};
 
 use crate::network::{Listener, MsgTypes, Node, NodeSession, remote::{SendRaftMessage}};
-use crate::raft::{storage, RaftNode};
+use crate::raft::{storage,storage::MemoryStorageData, RaftNode};
 use crate::utils::generate_node_id;
 
 pub type Payload = messages::ClientPayload<storage::MemoryStorageData, storage::MemoryStorageResponse, storage::MemoryStorageError>;
@@ -83,9 +83,9 @@ impl Network {
 
         self.restore_node(id);
 
-        println!("try to resgiser --{} is register to node",id);
+      
         if !self.nodes.contains_key(&id) {
-        println!("the id --{} is register to node",id);
+        println!("the id --{} is register_node",id);
         let node =Node::new(id, local_id, peer_addr, addr).start();
         self.nodes.insert(id, node);
 
@@ -102,7 +102,7 @@ impl Network {
             return ();
         }
 
-        debug!("Isolating network for node {}.", &id);
+       
         // self.isolated_nodes.push(id);
     }
 
@@ -177,7 +177,7 @@ impl Actor for Network {
                     fut::Either::B(fut::ok(()))
                 })
             })
-            .map_err(|e, _, _| println!("HTTP Cluster Error {:?}", e))
+            .map_err(|e, _, _| println!("not NetworkState::Cluster,HTTP Cluster Error {:?}", e))
             .and_then(move |_, act, ctx| {
               //  let nodes = act.nodes_info.clone();
               let mut nodes= act.all_connected_nodes.clone();
@@ -225,7 +225,7 @@ impl Actor for Network {
                                         .map_err(|_, _, _| ())
                                         .and_then(|_, act, ctx| {
                                      //        act.raft.do_send(AddNode(act.id));
-                                            println!("已发出命令clister join ---{}",act.id);
+                                            println!("web已发出命令clister join ---{}",act.id);
                                             fut::ok(())
                                         })
                                 }).spawn(ctx);
@@ -291,7 +291,7 @@ impl Handler<Save> for Network {
     type Result = Result<(),()>;
 
     fn handle(&mut self, msg: Save, ctx: &mut Context<Self>) -> Self::Result {
-        let cr=ClientRequest(msg.0);
+        let cr=ClientRequest(storage_add_data(msg.0));
          ctx.address().do_send(cr);
         println!("have send to handle  leader or sendto network-----------------");
 
@@ -308,9 +308,11 @@ pub struct PeerConnected(pub NodeId);
 impl Handler<PeerConnected> for Network {
     type Result = ();
 
-    fn handle(&mut self, msg: PeerConnected, _ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: PeerConnected, ctx: &mut Context<Self>) {
         // println!("Registering node {}", msg.0);
         self.nodes_connected.push(msg.0);
+
+      
          
         // self.sessions.insert(msg.0, msg.1);
     }
@@ -350,6 +352,7 @@ impl Handler<InitRaft> for Network {
         self.raft = Some(raft_node);
 
         if msg.join_mode {
+           
             return ();
         }
 
@@ -370,8 +373,9 @@ impl Handler<InitRaft> for Network {
                     })
                     .map_err(|_, _, _| ())
                     .and_then(|_, act, ctx| {
-                   //     let payload = add_node(act.id);
-                    //    ctx.notify(ClientRequest(payload));
+                      let payload = storage_add_node(act.id);
+                       ctx.notify(ClientRequest(payload));
+                                
                         fut::ok(())
                     })
             })
@@ -388,23 +392,40 @@ impl Message for GetCurrentLeader {
     type Result = Result<NodeId, ()>;
 }
 
-impl Handler<GetCurrentLeader> for Network {
-    type Result = Result<NodeId, ()>;
 
-    fn handle(&mut self, msg: GetCurrentLeader, _ctx: &mut Context<Self>) -> Self::Result {
+impl Handler<GetCurrentLeader> for Network {
+    type Result = ResponseActFuture<Self, NodeId, ()>;
+
+    fn handle(&mut self, msg: GetCurrentLeader, ctx: &mut Context<Self>) -> Self::Result {
         if let Some(ref mut metrics) = self.metrics {
             if let Some(leader) = metrics.current_leader {
-                Ok(leader)
+                Box::new(fut::result(Ok(leader)))
             } else {
-                Err(())
+                Box::new(
+                    fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(1)))
+                        .map_err(|_, _, _| ())
+                        .and_then(|_, _, ctx| {
+                            fut::wrap_future::<_, Self>(ctx.address().send(msg))
+                                .map_err(|_, _, _| ())
+                                .and_then(|res, _, _| fut::result(res))
+                        })
+                )
             }
         } else {
-            Err(())
+            Box::new(
+                    fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(1)))
+                        .map_err(|_, _, _| ())
+                        .and_then(|_, _, ctx| {
+                            fut::wrap_future::<_, Self>(ctx.address().send(msg))
+                                .map_err(|_, _, _| ())
+                                .and_then(|res, _, _| fut::result(res))
+                        })
+                )
         }
     }
 }
 
-pub struct ClientRequest(NodeId);
+pub struct ClientRequest(MemoryStorageData);
 
 impl Message for ClientRequest {
     type Result = ();
@@ -415,7 +436,7 @@ impl Handler<ClientRequest> for Network {
 
     fn handle(&mut self, msg: ClientRequest, ctx: &mut Context<Self>) {
 
-        let entry = messages::EntryNormal{data: storage::MemoryStorageData(msg.0)};
+        let entry = messages::EntryNormal{data: msg.0.clone()};
         let payload = Payload::new(entry, messages::ResponseMode::Applied);
 
         let req = fut::wrap_future(ctx.address().send(GetCurrentLeader))
@@ -527,7 +548,7 @@ impl Handler<AddConnectedNode> for Network {
     }
 }
 
-
+/*
 pub struct RemoveConnectedNode(pub NodeId);
 
 impl Message for RemoveConnectedNode {
@@ -543,7 +564,7 @@ impl Handler<RemoveConnectedNode> for Network {
        
     }
 }
-
+*/
 
 //////////////////////////////////////////////////////////////////////////////
 // RaftMetrics ///////////////////////////////////////////////////////////////
@@ -588,8 +609,13 @@ impl Handler<RemoveNode> for Network {
     type Result = ();
 
     fn handle(&mut self, msg: RemoveNode, ctx: &mut Context<Self>) {
-      
+       println!("RemoveNode   delete-----------------{}",msg.0);
+             let payload= storage_remove_node(msg.0);
+                                   
+       ctx.notify(ClientRequest(payload));
         ctx.notify(ChangeRaftClusterConfig(vec![], vec![msg.0]));
+      
+
     }
 }
 
@@ -619,12 +645,26 @@ impl Handler<ChangeRaftClusterConfig> for Network {
                             println!(" ------------- About to propose config change");
                             return fut::Either::A(
                                 fut::wrap_future::<_, Self>(raft.addr.send(payload))
-                                    .map_err(|err, _, _| panic!(err))
+                                    .map_err(|err, _, _| {
+                                        println!("About to propose config change error is {:?}",err);
+                                      //  panic!(err)
+                                        })
                                     .and_then(move |res, act, ctx| {
-                                  //      for id in nodes_to_add.iter() {
-                                   //         ctx.notify(AddNode(*id));
-                                  //      }
-                                  println!("succesful to propose config change");
+
+                             println!("--1---------succesful to propose config change------");
+
+                                        for id in nodes_to_add.iter() {
+                                         
+                                      let payload = storage_add_node(*id);
+                                       ctx.notify(ClientRequest(payload));
+                                        }
+
+                                        for id in nodes_to_remove.iter() {
+                                  
+                                        }
+
+                                         
+                                        println!("---------succesful to propose config change------");
 
                                         fut::ok(())
                                     }),
@@ -645,7 +685,7 @@ impl Handler<ChangeRaftClusterConfig> for Network {
                                 fut::wrap_future(
                                      node.unwrap().send(send_to_raft_po)
                                  )
-                                    .map_err(|err, _, _| println!("Error {:?}", err))
+                                    .map_err(|err, _, _| println!("send remote proposal Error {:?}", err))
                                     .and_then(|res, act, ctx| {
                                         fut::ok(())
                                     })
@@ -701,20 +741,20 @@ impl Handler<NodeDisconnect> for Network {
     fn handle(&mut self, msg: NodeDisconnect, ctx: &mut Context<Self>) {
         let id = msg.0;
   
-     //   self.nodes_connected.retain(|item| item!=&id);
-        println!("the crrent nodes_connected is {:?}-----",self.nodes_connected);
+        self.nodes_connected.retain(|item| item!=&id);
+   //     println!("the crrent nodes_connected is {:?}-----",self.nodes_connected);
         self.all_connected_nodes.remove(&id);
+    
         self.nodes.remove(&id);
         self.isolated_nodes.push(id);
-   //     self.sessions.remove(&id);
-
+ 
       
         // RemoveNode only if node is leader
         fut::wrap_future::<_, Self>(ctx.address().send(GetCurrentLeader))
             .map_err(|_, _, _| ())
             .and_then(move |res, act, ctx| {
                 let leader = res.unwrap();
-
+            
                 if leader == id {
                     fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(1)))
                         .map_err(|_, _, _| ())
@@ -727,14 +767,18 @@ impl Handler<NodeDisconnect> for Network {
                 }
 
                 if leader == act.id {
-                    Arbiter::spawn(ctx.address().send(RemoveNode(id))
+                                       
+                      Arbiter::spawn(ctx.address().send(RemoveNode(id))
                                    .map_err(|_| ())
                                    .and_then(|res| {
+                                        println!("NodeDisconnect leader == act.id................................");
                                        futures::future::ok(())
                                    }));
+                                   
                 }
-
+                
                 fut::ok(())
+          
             }).spawn(ctx);
     }
 }
@@ -869,7 +913,7 @@ impl Handler<SendToRaft> for Network {
 
                     let future = raft.addr.send(payload).map_err(|_| ()).and_then(|res| {
                         println!("get raft sendto message propal is resutl -----{:?}",res);
-                        let res_payload = serde_json::to_string("javasutr").unwrap();
+                        let res_payload = serde_json::to_string("propal ").unwrap();
                         futures::future::ok(res_payload)
                     });
                     Response::fut(future)
@@ -883,6 +927,21 @@ impl Handler<SendToRaft> for Network {
         res
     }
 }
+
+
+fn storage_add_node(id: NodeId) -> MemoryStorageData {
+    MemoryStorageData::Add(id)
+}
+
+fn storage_remove_node(id: NodeId) -> MemoryStorageData {
+    MemoryStorageData::Remove(id)
+}
+
+fn storage_add_data(id: NodeId) -> MemoryStorageData {
+    MemoryStorageData::My(id)
+}
+
+
 
 
 

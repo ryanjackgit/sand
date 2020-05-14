@@ -35,14 +35,26 @@ use actix_raft::{
 type Entry = RaftEntry<MemoryStorageData>;
 
 /// The concrete data type used by the `MemoryStorage` system.
+/*
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStorageData(pub NodeId);
+*/
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum MemoryStorageData {
+    Add(NodeId),
+    Remove(NodeId),
+    My(NodeId),
+}
+
 
 impl AppData for MemoryStorageData {}
 
 /// The concrete data type used for responding from the storage engine when applying logs to the state machine.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct MemoryStorageResponse;
+
+
 
 impl AppDataResponse for MemoryStorageResponse {}
 
@@ -75,7 +87,8 @@ pub struct MemoryStorage {
     snapshot_dir: String,
     state_machine: BTreeMap<u64, Entry>,
     snapshot_actor: Addr<SnapshotActor>,
-    nodes: HashRing<NodeId>,
+    mydata_nodes: HashRing<NodeId>,
+    add_remove_nodes:HashRing<NodeId>,
 }
 
 impl MemoryStorage {
@@ -89,7 +102,8 @@ impl MemoryStorage {
             snapshot_data: None, snapshot_dir,
             state_machine: Default::default(),
             snapshot_actor: SyncArbiter::start(1, move || SnapshotActor(snapshot_dir_pathbuf.clone())),
-            nodes: HashRing::new(Vec::new(), 10),
+            mydata_nodes: HashRing::new(Vec::new(), 10),
+            add_remove_nodes:HashRing::new(Vec::new(), 10),
         }
     }
 }
@@ -123,6 +137,7 @@ impl Handler<SaveHardState<MemoryStorageError>> for MemoryStorage {
     type Result = ResponseActFuture<Self, (), MemoryStorageError>;
 
     fn handle(&mut self, msg: SaveHardState<MemoryStorageError>, _: &mut Self::Context) -> Self::Result {
+        println!("the SaveHardState ---------------- {:?}",msg.hs);
         self.hs = msg.hs;
         Box::new(fut::ok(()))
     }
@@ -132,6 +147,7 @@ impl Handler<GetLogEntries<MemoryStorageData, MemoryStorageError>> for MemorySto
     type Result = ResponseActFuture<Self, Vec<Entry>, MemoryStorageError>;
 
     fn handle(&mut self, msg: GetLogEntries<MemoryStorageData, MemoryStorageError>, _: &mut Self::Context) -> Self::Result {
+        println!("GetLogEntries----------------------------------");
         Box::new(fut::ok(self.log.range(msg.start..msg.stop).map(|e| e.1.clone()).collect()))
     }
 }
@@ -161,14 +177,28 @@ impl Handler<ApplyEntryToStateMachine<MemoryStorageData, MemoryStorageResponse, 
 
     fn handle(&mut self, msg: ApplyEntryToStateMachine<MemoryStorageData, MemoryStorageResponse, MemoryStorageError>, _ctx: &mut Self::Context) -> Self::Result {
         let res = if let Some(old) = self.state_machine.insert(msg.payload.index, (*msg.payload).clone()) {
-            error!("Critical error. State machine entires are not allowed to be overwritten. Entry: {:?}", old);
+            println!("Critical error. State machine entires are not allowed to be overwritten. Entry: {:?}", old);
             Err(MemoryStorageError)
         } else {
 
-            if let EntryPayload::Normal(entry) = &msg.payload.payload {
-                let node_id = (*entry).data.0;
-                self.nodes.add_node(&node_id);
-            } else {
+           if let EntryPayload::Normal(entry) = &msg.payload.payload {
+              
+                match (*entry).data {
+                    MemoryStorageData::Add(node_id) => {
+                        println!("ApplyEntryToStateMachine Adding node {}", node_id);
+                        self.add_remove_nodes.add_node(&node_id);
+                      
+                    }
+                    MemoryStorageData::Remove(node_id) => {
+                        println!("ApplyEntryToStateMachine Removing node {}", node_id);
+                        self.add_remove_nodes.remove_node(&node_id);
+                    }
+                      MemoryStorageData::My(node_id) => {
+                     
+                      self.mydata_nodes.add_node(&node_id);
+                    }
+                }
+            }  else {
 
             }
 
@@ -184,13 +214,27 @@ impl Handler<ReplicateToStateMachine<MemoryStorageData, MemoryStorageError>> for
     fn handle(&mut self, msg: ReplicateToStateMachine<MemoryStorageData, MemoryStorageError>, _ctx: &mut Self::Context) -> Self::Result {
         let res = msg.payload.iter().try_for_each(|e| {
             if let Some(old) = self.state_machine.insert(e.index, e.clone()) {
-                error!("Critical error. State machine entires are not allowed to be overwritten. Entry: {:?}", old);
+                println!("Critical error. State machine entires are not allowed to be overwritten. Entry: {:?}", old);
                 return Err(MemoryStorageError)
             }
-            if let EntryPayload::Normal(entry) = &e.payload {
-
-                let node_id = entry.data.0;
-                self.nodes.add_node(&node_id);
+       
+                  if let EntryPayload::Normal(entry) = &e.payload {
+              
+                match (*entry).data {
+                    MemoryStorageData::Add(node_id) => {
+                        println!("ReplicateToStateMachine Adding node {}", node_id);
+                        self.add_remove_nodes.add_node(&node_id);
+                      
+                    }
+                    MemoryStorageData::Remove(node_id) => {
+                        println!("ReplicateToStateMachine Removing node {}", node_id);
+                        self.add_remove_nodes.remove_node(&node_id);
+                    }
+                    MemoryStorageData::My(node_id) => {
+                     
+                      self.mydata_nodes.add_node(&node_id);
+                    }
+                }
             } else {
 
             }
@@ -205,16 +249,16 @@ impl Handler<CreateSnapshot<MemoryStorageError>> for MemoryStorage {
     type Result = ResponseActFuture<Self, CurrentSnapshotData, MemoryStorageError>;
 
     fn handle(&mut self, msg: CreateSnapshot<MemoryStorageError>, _: &mut Self::Context) -> Self::Result {
-        debug!("Creating new snapshot under '{}' through index {}.", &self.snapshot_dir, &msg.through);
+        println!("----------------Creating new snapshot under '{}' through index {}.-----------", &self.snapshot_dir, &msg.through);
         // Serialize snapshot data.
         let through = msg.through;
         let entries = self.log.range(0u64..=through).map(|(_, v)| v.clone()).collect::<Vec<_>>();
-        debug!("Creating snapshot with {} entries.", entries.len());
+        println!("Creating snapshot with {} entries.", entries.len());
         let (index, term) = entries.last().map(|e| (e.index, e.term)).unwrap_or((0, 0));
         let snapdata = match rmps::to_vec(&entries) {
             Ok(snapdata) => snapdata,
             Err(err) => {
-                error!("Error serializing log for creating a snapshot. {}", err);
+                println!("Error serializing log for creating a snapshot. {}", err);
                 return Box::new(fut::err(MemoryStorageError));
             }
         };
@@ -247,6 +291,7 @@ impl Handler<InstallSnapshot<MemoryStorageError>> for MemoryStorage {
     type Result = ResponseActFuture<Self, (), MemoryStorageError>;
 
     fn handle(&mut self, msg: InstallSnapshot<MemoryStorageError>, _: &mut Self::Context) -> Self::Result {
+        println!("--------------------InstallSnapshot---------------------");
         let (index, term) = (msg.index, msg.term);
         Box::new(fut::wrap_future(self.snapshot_actor.send(SyncInstallSnapshot(msg)))
             .map_err(|err, _, _| panic!("Error communicating with snapshot actor. {}", err))
@@ -283,7 +328,7 @@ impl Handler<GetCurrentSnapshot<MemoryStorageError>> for MemoryStorage {
     type Result = ResponseActFuture<Self, Option<CurrentSnapshotData>, MemoryStorageError>;
 
     fn handle(&mut self, _: GetCurrentSnapshot<MemoryStorageError>, _: &mut Self::Context) -> Self::Result {
-        debug!("Checking for current snapshot.");
+        println!("-----------------Checking for current snapshot.---------------");
         Box::new(fut::ok(self.snapshot_data.clone()))
     }
 }
@@ -461,7 +506,7 @@ impl Handler<GetNode> for MemoryStorage {
     type Result = Result<NodeId, ()>;
 
     fn handle(&mut self, msg: GetNode, ctx: &mut Context<Self>) -> Self::Result {
-        if let Some(node_id) = self.nodes.get_node(msg.0) {
+        if let Some(node_id) = self.mydata_nodes.get_node(msg.0) {
             Ok(*node_id)
         } else {
             Err(())
@@ -485,11 +530,18 @@ impl Handler<FindValue> for MemoryStorage {
          let mut set=HashSet::new();
       for (_key,value) in self.state_machine.range(0..) {
           if let actix_raft::messages::EntryPayload::Normal(y) = &value.payload {
-              set.insert(y.data.0);
-            println!("the state_machine is -------{:?},the find_value is {}",y.data.0,msg.0);
+             
+
+              if let  MemoryStorageData::My(x)=y.data {
+              set.insert(x);
+              }
+
+            
           }
             
       }
+
+      println!("the state_machine is -------{:?},the find_value is {}",set,msg.0);
 
    
      Ok(set.contains(&msg.0))

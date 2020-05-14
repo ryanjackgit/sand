@@ -22,7 +22,7 @@ impl Handler<messages::AppendEntriesRequest<Data>> for Network {
 
     fn handle(&mut self, msg: messages::AppendEntriesRequest<Data>, _ctx: &mut Context<Self>) -> Self::Result {
        // println!("the node id is ----{}",msg.target);
-        //   println!("the AppendEntriesRequest  is ----{:?}",msg);
+       //   println!("the AppendEntriesRequest  is ----{:?}",msg);
         match self.get_node(msg.target) {
             Some(node) => {
 
@@ -48,7 +48,7 @@ impl Handler<messages::VoteRequest> for Network {
     type Result = ResponseActFuture<Self, messages::VoteResponse, ()>;
 
     fn handle(&mut self, msg: messages::VoteRequest, _ctx: &mut Context<Self>) -> Self::Result {
-
+  // println!("the VoteRequest  is ----{:?}",msg);
       match self.get_node(msg.target) {
             Some(node) => {
                   if self.isolated_nodes.contains(&msg.target) || self.isolated_nodes.contains(&msg.candidate_id) {

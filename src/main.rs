@@ -7,7 +7,9 @@ use futures::{Future};
 use actix_raft::NodeId;
 
 use sand::network::{Network,NetworkState, GetNode,GetNodes,GetClusterState,Save,Find,ChangeRaftClusterConfig};
-
+use serde::{Serialize,Deserialize};
+use std::fs::File;
+use std::io::Read;
 
 fn index_route(
     req: HttpRequest,
@@ -95,9 +97,22 @@ fn find_route(
 fn main() {
     let sys = System::new("testing");
 
-    //NetworkState::SingleNode
-  //  let start_init_state=NetworkState::Cluster;
-    let register_server="127.0.0.1:9000".to_string();
+    #[derive(Serialize, Deserialize)]
+    pub struct Config {
+    discovery_server: String,
+   }
+
+
+   let mut file = File::open("config.json").unwrap();
+   let mut buff = String::new();
+   file.read_to_string(&mut buff).unwrap();
+
+   let foo: Config = serde_json::from_str(&buff).unwrap();
+   //println!("Name: {}", foo.name);
+
+
+
+    let register_server=foo.discovery_server.clone();
 
     println!("the resister server is {}",register_server);
 

@@ -17,7 +17,7 @@ use crate::network::{
     NodeResponse,
     Network,
     network::AddConnectedNode,
-    network::RemoveConnectedNode,
+  //  network::RemoveConnectedNode,
     network::NodeDisconnect,
     PeerConnected,
     remote::{
@@ -42,7 +42,7 @@ pub struct Node {
     framed: Option<actix::io::FramedWrite<WriteHalf<TcpStream>, ClientNodeCodec>>,
     requests: HashMap<u64, oneshot::Sender<String>>,
     network: Addr<Network>,
-    hb: Instant,  // recorder hb instant
+   
 }
 
 impl Node {
@@ -56,7 +56,7 @@ impl Node {
             framed: None,
             requests: HashMap::new(),
             network: network,
-             hb: Instant::now(),
+           
         }
     }
 
@@ -80,12 +80,13 @@ impl Node {
     }
 
     fn hb(&self, ctx: &mut Context<Self>) {
-/*
+
         ctx.run_later(Duration::new(1, 0), |act, ctx| {
             act.framed.as_mut().unwrap().write(NodeRequest::Ping);
             act.hb(ctx);
         });
-*/
+
+/*
          ctx.run_interval(Duration::new(1, 0), |act, ctx| {
 
             if Instant::now().duration_since(act.hb) > Duration::new(10, 0) {
@@ -96,6 +97,7 @@ impl Node {
             // Reply heartbeat
             act.framed.as_mut().unwrap().write(NodeRequest::Ping);
         });
+        */
     }
     
 }
@@ -198,7 +200,7 @@ impl StreamHandler<NodeResponse, std::io::Error> for Node {
             },
             NodeResponse::Ping => {
                 // println!("Client got Ping from {}", self.id);
-                self.hb = Instant::now();
+               // self.hb = Instant::now();
               },
             _ => ()
         }
