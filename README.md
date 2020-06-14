@@ -1,44 +1,52 @@
 # sand 
+
+ This version support RocksDB as storage.
+ 
  this version support first start as singlenode,after other node join this single node cluster,
  attention, this style started cluster must keep two  nodes at least.
 
-Rust Actor(actix-raft) model raft  implement test 
+Rust Actor(actix-raft) model raft  implement and RocksDB as storage,RocksDB save the raft states 
+and Key-Value data.the default path is /tmp/rocksdb.
 
-How to test it ?
+prepare for 3 or 5 nodes server,please use docker,ip is :172.17.0.1,172.17.0.2,172.17.0.3,172.17.0.4
+172.17.0.5.
 
-1,git clone https://github.com/ryanjackgit/sand
+1, require build RocksDB lib,please google search to build RocksDB lib.                         
 
-2, cd sand 
+2,git clone https://github.com/ryanjackgit/sand
+
+3, cd sand 
  cargo build
 
-3, 
+4, 
 first start alone as single node server :
 
-./target/debug/sand 127.0.0.1:8000 127.0.0.1:9000
+./target/debug/sand 172.17.0.1:8000 172.17.0.1:9000
 then please wait 5 seconds,the single node cluser works.
 
-4,  in sand/config.json,set  discovery_server="127.0.0.1:9000" as discovery node . 
+5,  in sand/config.json,set  discovery_server="172.17.0.1:9000" as discovery node . 
  
  start 3 nodes cluster: of course ,you may add more.
 
 
 
-./target/debug/sand 127.0.0.1:8001 127.0.0.1:9001
+./target/debug/sand 172.17.0.2:8000 172.17.0.2:9000
 
-./target/debug/sand 127.0.0.1:8002 127.0.0.1:9002
+./target/debug/sand 172.17.0.3:8000 172.17.0.3:9000
 
-./target/debug/sand 127.0.0.1:8003 127.0.0.1:9003
+./target/debug/sand 172.17.0.4:8000 172.17.0.4:9000
 
-8000,8001,8002 is a port about raft  internal comunnication,9000 9002 9003 etc is http port
+./target/debug/sand 172.17.0.5:8000 172.17.0.5:9000
 
-5. test the cluster running state:  {{integer}} is a interger,for instance http://127.0.0.1:9000/save/23,it will save 23 to cluster
+8000 is a port about raft  internal comunnication,9000  is http port.
 
-http://127.0.0.1:9000/save/{{integer}}  wirte  integer to cluster.
+5. test the cluster running state: 
 
-http://127.0.0.1:9000/find/{{integer}}  verify,if integer in this node.it return true,if not in cluster,return false.
+http://172.17.0.1:9000/put/{{key}}/{{value}}  wirte  Key-value to cluster.
 
-http://127.0.0.1:9001/find/{{integer}}  verify,if integer in this node.it return true,if not in cluster,return false.
+http://127.0.0.1:9000/get/{{Key}}  verify,if key in this node.it return true,if not in cluster,return false.
 
-of course,you may test every node see if or not it save this integer
+
+of course,you may test every node see if or not it save this key-value data.
 
 

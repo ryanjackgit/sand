@@ -25,7 +25,7 @@ pub struct Network {
     id: NodeId,
     address: Option<String>,
     raft: Option<RaftNode>,
-    peers: Vec<String>,
+    static_peers:HashMap<NodeId, String>,
     nodes: HashMap<NodeId, Addr<Node>>,
   pub  isolated_nodes: Vec<NodeId>,
 
@@ -46,7 +46,7 @@ impl Network {
         Network {
             id: 0,
             address: None,
-            peers: Vec::new(),
+            static_peers: HashMap::new(),
             nodes: HashMap::new(),
             raft: None,
             listener: None,
@@ -62,9 +62,10 @@ impl Network {
     }
 
     /// set peers
-    pub fn peers(&mut self, peers: Vec<&str>) {
-        for peer in peers.iter() {
-            self.peers.push(peer.to_string());
+    pub fn peers(&mut self, peers: Vec<String>) {
+        for peer in peers.into_iter() {
+            let id = generate_node_id(&peer);
+            self.static_peers.insert(id,peer);
         }
     }
 
@@ -135,7 +136,7 @@ impl Actor for Network {
         self.listener = Some(listener_addr);
         self.nodes_connected.push(self.id);
 
-         let peers = self.peers.clone();
+       //  let peers = self.peers.clone();
 
    
              let mut client = Client::default();
@@ -181,6 +182,7 @@ impl Actor for Network {
             .and_then(move |_, act, ctx| {
               //  let nodes = act.nodes_info.clone();
               let mut nodes= act.all_connected_nodes.clone();
+              nodes.extend(act.static_peers.clone());
 
        //          nodes.insert(7220731670040962359,"127.0.0.1:8001".to_string());
                 for (id, info) in &nodes {
@@ -221,10 +223,10 @@ impl Actor for Network {
                                                         .send_json(&act.id))
                                 .map_err(|err, _, _| println!("Error joining cluster {:?}", err))
                                 .and_then(|res, act, ctx| {
-                                    fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(1)))
+                                    fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(3)))
                                         .map_err(|_, _, _| ())
                                         .and_then(|_, act, ctx| {
-                                     //        act.raft.do_send(AddNode(act.id));
+                                          //   act.raft.do_send(AddNode(act.id));
                                             println!("web已发出命令clister join ---{}",act.id);
                                             fut::ok(())
                                         })
@@ -247,11 +249,11 @@ impl Actor for Network {
 pub struct GetNode(pub String);
 
 impl Message for GetNode {
-    type Result = Result<NodeId, ()>;
+    type Result = Result<Vec<NodeId>, ()>;
 }
 
 impl Handler<GetNode> for Network {
-    type Result = Response<NodeId, ()>;
+    type Result = Response<Vec<NodeId>, ()>;
 
     fn handle(&mut self, msg: GetNode, ctx: &mut Context<Self>) -> Self::Result {
         let raft = self.raft.as_mut().unwrap();
@@ -262,26 +264,26 @@ impl Handler<GetNode> for Network {
     }
 }
 
-pub struct Find(pub NodeId);
+pub struct Find(pub Vec<u8>);
 
 impl Message for Find {
-    type Result = Result<bool, ()>;
+    type Result = Result<Vec<u8>, failure::Error>;
 }
 
 impl Handler<Find> for Network {
-    type Result = Response<bool, ()>;
+    type Result = Response<Vec<u8>, failure::Error>;
 
     fn handle(&mut self, msg: Find, ctx: &mut Context<Self>) -> Self::Result {
         let raft = self.raft.as_mut().unwrap();
         Response::fut(raft.find_value(msg.0)
-                      .map_err(|_| ())
-                      .map(|res| res.unwrap())
+                      .map_err(|_| failure::format_err!("{}","not find"))
+                      .and_then(|res| res)
         )
     }
 }
 
 
-pub struct Save(pub NodeId);
+pub struct Save(pub String,pub String);
 
 impl Message for Save {
     type Result = Result<(), ()>;
@@ -291,7 +293,7 @@ impl Handler<Save> for Network {
     type Result = Result<(),()>;
 
     fn handle(&mut self, msg: Save, ctx: &mut Context<Self>) -> Self::Result {
-        let cr=ClientRequest(storage_add_data(msg.0));
+        let cr=ClientRequest(storage_add_data(msg.0,msg.1));
          ctx.address().do_send(cr);
         println!("have send to handle  leader or sendto network-----------------");
 
@@ -333,31 +335,63 @@ impl Handler<InitRaft> for Network {
 
     fn handle(&mut self, msg: InitRaft, ctx: &mut Context<Self>) {
                // let raft = self.raft.as_ref().unwrap();
-        println!("init raft members is ------{:?}",msg.nodes.clone());
+        println!("members is ------{:?}",msg.nodes.clone());
 
                 let network_addr = msg.net;
              
                  let nodes = msg.nodes;
+                 let nodes_count=nodes.len();
    
-       println!("the join mode is -------------{}",msg.join_mode);
+       println!("the join mode is -------------{},the nodes len is {}",msg.join_mode,nodes_count);
 
-        let nodes = if msg.join_mode {
+        let nodes = if msg.join_mode && nodes_count==1 {
             vec![self.id]
         } else {
             nodes.clone()
         };
 
+        println!("init raft members is ------{:?}",nodes.clone());
 
        let raft_node = RaftNode::new(self.id, nodes.clone(), network_addr);
         self.raft = Some(raft_node);
 
-        if msg.join_mode {
+        if msg.join_mode && nodes_count==1 {
            
             return ();
         }
 
+        if msg.join_mode && nodes_count>1 {
 
-             fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(5)))
+            /*
+            fut::wrap_future::<_, Self>(
+                self.raft.as_ref().unwrap().addr
+                  .send(InitWithConfig::new(nodes.clone())),
+          )
+              .map_err(|err, _, _| panic!(err))
+              .and_then(|_, act, ctx| {
+                  println!("-----Inited with config-true->1-!");
+                  println!("-----Inited with config-true->1-!");
+                
+            //      let payload = storage_add_node(act.id);
+            //      ctx.notify(ClientRequest(payload));
+                           
+                   fut::ok(())
+              }) .spawn(ctx);
+              */
+            
+            /*
+              fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(5)))
+              .map_err(|_, _, _| ())
+              .and_then(move |_, act, ctx| {
+                fut::ok(())
+              }).spawn(ctx);
+              */
+
+        }
+
+        if !msg.join_mode {
+
+            fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(5)))
             .map_err(|_, _, _| ())
             .and_then(move |_, act, ctx| {
                 fut::wrap_future::<_, Self>(
@@ -366,9 +400,12 @@ impl Handler<InitRaft> for Network {
                 )
                     .map_err(|err, _, _| panic!(err))
                     .and_then(|_, _, _| {
-                        println!("Inited with config---!");
+                        println!("-----Inited with config---!");
+                        println!("-----Inited with config---!");
+                        println!("-----Inited with config---!");
+
                         fut::wrap_future::<_, Self>(Delay::new(
-                            Instant::now() + Duration::from_secs(5),
+                            Instant::now() + Duration::from_secs(3),
                         ))
                     })
                     .map_err(|_, _, _| ())
@@ -380,6 +417,7 @@ impl Handler<InitRaft> for Network {
                     })
             })
             .spawn(ctx);
+        }
 
 
             
@@ -594,7 +632,7 @@ impl Handler<DiscoverNodes> for Network {
 
     fn handle(&mut self, _: DiscoverNodes, _: &mut Context<Self>) -> Self::Result {
         Box::new(
-            fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(5)))
+            fut::wrap_future::<_, Self>(Delay::new(Instant::now() + Duration::from_secs(8)))
                 .map_err(|_, _, _| ())
                 .and_then(|_, act: &mut Network, _| fut::result(Ok((act.nodes_connected.clone(), act.join_mode)))),
         )
@@ -610,10 +648,12 @@ impl Handler<RemoveNode> for Network {
 
     fn handle(&mut self, msg: RemoveNode, ctx: &mut Context<Self>) {
        println!("RemoveNode   delete-----------------{}",msg.0);
-             let payload= storage_remove_node(msg.0);
-                                   
-       ctx.notify(ClientRequest(payload));
-        ctx.notify(ChangeRaftClusterConfig(vec![], vec![msg.0]));
+    
+       let fu= ctx.address().send(ChangeRaftClusterConfig(vec![], vec![msg.0]))
+        .map_err(|err| println!("this is ---------------{:?}",err))
+        .map(|_| ());
+
+         Arbiter::spawn(fu);
       
 
     }
@@ -631,6 +671,8 @@ impl Handler<ChangeRaftClusterConfig> for Network {
     fn handle(&mut self, msg: ChangeRaftClusterConfig, ctx: &mut Context<Self>) {
         let nodes_to_add = msg.0.clone();
         let nodes_to_remove = msg.1.clone();
+
+        use actix_raft::admin::ProposeConfigChangeError;
 
         let payload = ProposeConfigChange::new(nodes_to_add.clone(), nodes_to_remove.clone());
 
@@ -650,8 +692,14 @@ impl Handler<ChangeRaftClusterConfig> for Network {
                                       //  panic!(err)
                                         })
                                     .and_then(move |res, act, ctx| {
-
-                             println!("--1---------succesful to propose config change------");
+                                        println!("-----------propose config change-----{:?}-----",res);
+                                        let flag=match res {
+                                            Ok(_) => true,
+                                            Err(ProposeConfigChangeError::Noop) => true,
+                                            _ => false,
+                                        };
+                                     if flag {
+                                     println!("--1---------succesful to propose config change-----{:?}-----",res);
 
                                         for id in nodes_to_add.iter() {
                                          
@@ -660,13 +708,19 @@ impl Handler<ChangeRaftClusterConfig> for Network {
                                         }
 
                                         for id in nodes_to_remove.iter() {
-                                  
+                                     let payload= storage_remove_node(*id);
+                                   
+                                      ctx.notify(ClientRequest(payload));
                                         }
 
                                          
                                         println!("---------succesful to propose config change------");
 
                                         fut::ok(())
+                                     } else {
+                                        println!("---------failure to propose config change------");
+                                         fut::err(())
+                                     }
                                     }),
                             );
                         }
@@ -767,14 +821,21 @@ impl Handler<NodeDisconnect> for Network {
                 }
 
                 if leader == act.id {
-                                       
+                    /*     
                       Arbiter::spawn(ctx.address().send(RemoveNode(id))
                                    .map_err(|_| ())
                                    .and_then(|res| {
                                         println!("NodeDisconnect leader == act.id................................");
                                        futures::future::ok(())
                                    }));
-                                   
+                                   */
+                     let s=   fut::wrap_future(ctx.address().send(RemoveNode(id)))
+                        .map_err(|_, _: &mut Self,_| ())
+                        .and_then(|_res,_,_| {
+                                        println!("NodeDisconnect leader == act.id................................");
+                                       fut::ok(())
+                                   });
+                     s.spawn(ctx);              
                 }
                 
                 fut::ok(())
@@ -937,8 +998,8 @@ fn storage_remove_node(id: NodeId) -> MemoryStorageData {
     MemoryStorageData::Remove(id)
 }
 
-fn storage_add_data(id: NodeId) -> MemoryStorageData {
-    MemoryStorageData::My(id)
+fn storage_add_data(key: String,value:String) -> MemoryStorageData {
+    MemoryStorageData::My(key,value)
 }
 
 

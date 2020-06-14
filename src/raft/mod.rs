@@ -12,6 +12,8 @@ use tempfile::{tempdir_in};
 use std::time::{Duration};
 use crate::network::{Network};
 
+use failure::Error;
+
 pub mod network;
 pub mod storage;
 
@@ -62,12 +64,12 @@ impl RaftNode {
 
 
 impl RaftNode {
-    pub fn get_node(&mut self, node_id: &str) -> impl Future<Item = Result<NodeId, ()>, Error = actix::MailboxError> {
+    pub fn get_node(&mut self, node_id: &str) -> impl Future<Item = Result<Vec<NodeId>, ()>, Error = actix::MailboxError> {
          self.storage.send(storage::GetNode(node_id.to_string()))
     }
 
-  pub fn find_value(&mut self, node_id: NodeId) -> impl Future<Item = Result<bool, ()>, Error = actix::MailboxError> {
-         self.storage.send(storage::FindValue(node_id))
+  pub fn find_value(&mut self, key: Vec<u8>) -> impl Future<Item = Result<Vec<u8>, Error>, Error = actix::MailboxError> {
+         self.storage.send(storage::FindValue(key))
     }
  
 }
