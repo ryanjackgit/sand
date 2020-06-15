@@ -5,10 +5,9 @@
  this version support first start as singlenode,after other node join this single node cluster,
  attention, this style started cluster must keep two  nodes at least.
 
-Rust Actor(actix-raft) model raft  implement and RocksDB as storage,RocksDB save the raft states 
-and Key-Value data.the default path is /tmp/rocksdb.
+This implemention include Rust Actor(actix-raft) model raft  implemention and RocksDB as storage implemention,RocksDB save the raft states and Key-Value data.the default path is /tmp/rocksdb.
 
-prepare for 3 or 5 nodes server,please use docker,ip is :172.17.0.1,172.17.0.2,172.17.0.3,172.17.0.4
+prepare for 3 or 5 nodes server,please use docker,ips is :172.17.0.1,172.17.0.2,172.17.0.3,172.17.0.4
 172.17.0.5.
 
 1, require build RocksDB lib,please google search to build RocksDB lib.                         
