@@ -1,7 +1,7 @@
 # sand 
 
  This version support RocksDB as storage.
- 
+
  this version support first start as singlenode,after other node join this single node cluster,
  attention, this style started cluster must keep two  nodes at least.
 
@@ -40,7 +40,7 @@ then please wait 5 seconds,the single node cluser works.
 
 8000 is a port about raft  internal comunnication,9000  is http port.
 
-5. test the cluster running state: 
+6. test the cluster running state: 
 
 http://172.17.0.1:9000/put/{{key}}/{{value}}  wirte  Key-value to cluster.
 
