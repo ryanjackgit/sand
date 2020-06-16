@@ -41,12 +41,12 @@ then please wait 5 seconds,the single node cluser works.
 
 6. test the cluster running state: 
 
-http://172.17.0.1:9000/put/{{key}}/{{value}}  wirte  Key-value to cluster.
+http://172.17.0.1:9000/put/{{key}}/{{value}}  write  Key-value to cluster.
 
-http://127.0.0.1:9000/get/{{Key}}  verify,if key in this node.it return true,if not in cluster,return false.
+http://127.0.0.1:9000/get/{{Key}}  verify,if key in this node.it return true,if not in this node,return false.
+http://127.0.0.3:9000/get/{{Key}} 
 
-
-of course,you may test every node see if or not it save this key-value data
+of course,you may test every node see if or not it save this key-value data.
 
 说明：
 1，Actix-raft 是Rust中实现Raft规范协议比较完全的一个，基本实现了所有标准规范的所有功能，可以投入产品中使用。
