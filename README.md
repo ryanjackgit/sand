@@ -49,7 +49,7 @@ http://127.0.0.3:9000/get/{{Key}}
 of course,you may test every node see if or not it save this key-value data.
 
 说明：
-1，Actix-raft 是Rust中实现Raft规范协议比较完全的一个，基本实现了所有标准规范的所有功能，可以投入产品中使用。
+1，Actix-raft 是Rust中实现Raft规范协议比较完全的一个，基本实现了所有标准规范的所有功能，可以投入产品中使用,只是目前Pre-vote暂未实现。
 2，分布式的Key-Value主要使用了muti raft,对Key使用范围分区或哈西分区来实现分布式存储。主要包括分区的重新划分和重新聚集分片。
 3, 整体架构图如下：
 
