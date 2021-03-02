@@ -1,5 +1,5 @@
 # sand 
-
+更新：本项目的依赖库actix-raft已更名为async-raft,其中缺乏的pre-vote在新版本中已完全实现，新库支持Rust Async/await异步语法，使用了Async-trait库.
  This version support RocksDB as storage.
 
  this version support first start as singlenode,after other node join this single node cluster,
